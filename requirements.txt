@@ -1,0 +1,5 @@
+mcp==1.29.0
+httpx==0.28.1
+python-dotenv==1.0.1
+jdatetime==5.2.0
+tzdata==2026.3
