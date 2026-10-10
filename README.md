@@ -15,6 +15,13 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
+On Linux or macOS:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+```
+
 Copy `.env.example` to `.env` and configure:
 
 ```dotenv
@@ -35,14 +42,31 @@ codex.cmd mcp remove rahtal
 codex.cmd mcp add rahtal --env "PYTHONPATH=D:\Coding\ZarProject\rahtal-assistant" -- "D:\Coding\ZarProject\rahtal-assistant\.venv\Scripts\python.exe" -m rahtal_assistant.mcp.server
 ```
 
-Restart Codex Desktop after changing the registration. The server exposes:
+Restart Codex Desktop after changing the registration.
 
-- `rahtal_whoami`
-- `rahtal_list_my_tasks`
-- `rahtal_search_my_tasks`
-- `rahtal_get_task`
-- `rahtal_list_performance_titles`
-- `rahtal_create_performance`
+## Claude Code registration
+
+From this directory:
+
+```bash
+claude mcp add rahtal --env PYTHONPATH="$PWD" -- "$PWD/.venv/bin/python" -m rahtal_assistant.mcp.server
+```
+
+## Tools
+
+| Tool | Kind |
+|---|---|
+| `rahtal_whoami` | read |
+| `rahtal_list_my_tasks` | read (Rahtal marks listed tasks as viewed) |
+| `rahtal_search_my_tasks` | read |
+| `rahtal_get_task` | read |
+| `rahtal_update_task_status` | write |
+| `rahtal_list_performance_titles` | read |
+| `rahtal_list_performance` | read |
+| `rahtal_create_performance` | write, not idempotent |
+| `rahtal_create_performance_batch` | write, not idempotent; dry run by default |
+| `rahtal_update_performance` | write |
+| `rahtal_delete_performance` | destructive write |
 
 Performance creation requires a performance-subject ID. A task ID is optional:
 when one is supplied, it must be an exact task ID; routine work such as a daily
@@ -51,12 +75,27 @@ retried after an uncertain failure. New performance records use Rahtal
 importance and urgency ID `2` by default; callers may supply different verified
 IDs when needed.
 
+`rahtal_create_performance_batch` checks every entry before writing anything:
+fields and time ranges, Rahtal's past-date limit, task ownership, and overlaps
+within the batch and with records already in Rahtal. With `dry_run=true` (the
+default) it only reports. With `dry_run=false` it refuses to write if any check
+failed, otherwise creates entries in order, stops at the first failure without
+retrying, and reports which entries were created.
+
+`rahtal_update_performance` changes only the fields it is given and returns the
+record before and after. Use it to fix a record instead of deleting and
+recreating it.
+
 ## Tests
 
 The default suite is mocked and performs no live requests or writes:
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests\rahtal_assistant -v
+```
+
+```bash
+PYTHONPATH=. .venv/bin/python -m unittest discover -s tests/rahtal_assistant -v
 ```
 
 Read-only smoke checks require `RAHTAL_SMOKE_READ_ONLY=true`. Write smoke checks

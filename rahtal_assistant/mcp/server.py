@@ -27,13 +27,17 @@ SERVER_INSTRUCTIONS = (
     "Use Rahtal tools for the user's Rahtal tasks and performance. Never guess "
     "entity IDs. Resolve natural task references with rahtal_search_my_tasks, "
     "ask the user when candidates are ambiguous, and pass only a returned ID to "
-    "rahtal_get_task or rahtal_create_performance. A task is optional for a "
-    "performance record; routine work such as a daily meeting may be recorded "
-    "without one. If the performance subject is "
-    "unknown, resolve it with rahtal_list_performance_titles. Creation is a "
-    "non-idempotent write: validate the exact task, date, time range, subject ID, "
-    "and summary, and do not repeat the call after an uncertain failure. Never "
-    "expose credentials or tokens."
+    "rahtal_get_task or a write tool. A task is optional for a performance "
+    "record; routine work such as a daily meeting may be recorded without one. "
+    "If the performance subject is unknown, resolve it with "
+    "rahtal_list_performance_titles. Before recording performance, check what "
+    "is already recorded with rahtal_list_performance. For more than a couple "
+    "of records, use rahtal_create_performance_batch: run it with dry_run=true, "
+    "show the user the plan and any problems, and only then run it with "
+    "dry_run=false. Creation is a non-idempotent write: do not repeat a create "
+    "after an uncertain failure; list the day first to see whether it landed. "
+    "Fix a wrong record with rahtal_update_performance instead of deleting and "
+    "recreating it. Never expose credentials or tokens."
 )
 
 mcp = FastMCP(
@@ -52,6 +56,18 @@ WRITE = ToolAnnotations(
     readOnlyHint=False,
     destructiveHint=False,
     idempotentHint=False,
+    openWorldHint=True,
+)
+IDEMPOTENT_WRITE = ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=True,
+)
+DESTRUCTIVE_WRITE = ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=True,
+    idempotentHint=True,
     openWorldHint=True,
 )
 
@@ -92,7 +108,8 @@ def rahtal_whoami() -> dict[str, Any]:
     title="List my Rahtal tasks",
     description=(
         "List tasks assigned to the authenticated Rahtal user. Status accepts "
-        "todo, in_progress, active, done, not_done, all, or the verified IDs 1-4."
+        "todo, in_progress, active, done, not_done, all, or the verified IDs 1-4. "
+        "Rahtal marks every listed task as viewed."
     ),
     annotations=READ_ONLY,
     structured_output=True,
@@ -153,6 +170,29 @@ def rahtal_get_task(task_id: int) -> dict[str, Any]:
 
 
 @mcp.tool(
+    title="Update a Rahtal task's status",
+    description=(
+        "Move one exact assigned task to todo, in_progress, done, or not_done, "
+        "like dragging its card on the Rahtal board. Rahtal records the change "
+        "in the task history and notifies the task's creator. "
+        "non_completion_reason is accepted only with not_done."
+    ),
+    annotations=IDEMPOTENT_WRITE,
+    structured_output=True,
+)
+def rahtal_update_task_status(
+    task_id: int,
+    status: Literal["todo", "in_progress", "done", "not_done"],
+    non_completion_reason: str | None = None,
+) -> dict[str, Any]:
+    return _run(
+        lambda: services().tasks.update_status(
+            task_id, status, non_completion_reason=non_completion_reason
+        )
+    )
+
+
+@mcp.tool(
     title="List Rahtal performance subjects",
     description=(
         "List the authenticated user's allowed Rahtal performance subjects and "
@@ -209,6 +249,119 @@ def rahtal_create_performance(
             urgency_id=urgency_id,
         )
     )
+
+
+@mcp.tool(
+    title="List my Rahtal performance",
+    description=(
+        "List the authenticated user's performance records for one day or a date "
+        "range of up to 62 days, with per-day totals. Dates are Gregorian "
+        "YYYY-MM-DD by default, or Jalali with date_calendar='jalali'. end_date "
+        "defaults to start_date."
+    ),
+    annotations=READ_ONLY,
+    structured_output=True,
+)
+def rahtal_list_performance(
+    start_date: str | None = "today",
+    end_date: str | None = None,
+    date_calendar: Literal["gregorian", "jalali"] = "gregorian",
+) -> dict[str, Any]:
+    return _run(
+        lambda: services().performance.list_performance(
+            start_date=start_date,
+            end_date=end_date,
+            date_calendar=date_calendar,
+        )
+    )
+
+
+@mcp.tool(
+    title="Create Rahtal performance in a batch",
+    description=(
+        "Validate, and optionally create, many performance records at once. Each "
+        "entry takes title_id, summary, date, start_time, end_time (or "
+        "duration_minutes with one anchor), and optional task_id, customer_id, "
+        "product_id, importance_id, urgency_id. dry_run=true (the default) "
+        "checks every entry, the past-date limit, task ownership, and overlaps "
+        "within the batch and with existing records, and writes nothing. "
+        "dry_run=false creates entries in order and stops at the first failure "
+        "without retrying; the result lists what was created."
+    ),
+    annotations=WRITE,
+    structured_output=True,
+)
+def rahtal_create_performance_batch(
+    entries: list[dict[str, Any]],
+    date_calendar: Literal["gregorian", "jalali"] = "gregorian",
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    return _run(
+        lambda: services().performance.create_performance_batch(
+            entries,
+            date_calendar=date_calendar,
+            dry_run=dry_run,
+        )
+    )
+
+
+@mcp.tool(
+    title="Update Rahtal performance",
+    description=(
+        "Change one of the user's existing performance records by its record ID "
+        "(from rahtal_list_performance). Only the fields passed are changed; "
+        "set clear_task=true to unlink its task. Returns the record before and "
+        "after the change."
+    ),
+    annotations=IDEMPOTENT_WRITE,
+    structured_output=True,
+)
+def rahtal_update_performance(
+    record_id: int,
+    summary: str | None = None,
+    title_id: int | None = None,
+    task_id: int | None = None,
+    clear_task: bool = False,
+    date: str | None = None,
+    date_calendar: Literal["gregorian", "jalali"] = "gregorian",
+    start_time: str | None = None,
+    end_time: str | None = None,
+    customer_id: int | None = None,
+    product_id: int | None = None,
+    importance_id: int | None = None,
+    urgency_id: int | None = None,
+) -> dict[str, Any]:
+    return _run(
+        lambda: services().performance.update_performance(
+            record_id,
+            summary=summary,
+            title_id=title_id,
+            task_id=task_id,
+            clear_task=clear_task,
+            date=date,
+            date_calendar=date_calendar,
+            start_time=start_time,
+            end_time=end_time,
+            customer_id=customer_id,
+            product_id=product_id,
+            importance_id=importance_id,
+            urgency_id=urgency_id,
+        )
+    )
+
+
+@mcp.tool(
+    title="Delete Rahtal performance",
+    description=(
+        "Delete one of the user's performance records by its record ID. Rahtal "
+        "hides the record rather than erasing it, but the user cannot restore "
+        "it from the app. Confirm the exact record with the user first."
+    ),
+    annotations=DESTRUCTIVE_WRITE,
+    structured_output=True,
+)
+def rahtal_delete_performance(record_id: int) -> dict[str, Any]:
+    return _run(lambda: services().performance.delete_performance(record_id))
 
 
 def main() -> None:

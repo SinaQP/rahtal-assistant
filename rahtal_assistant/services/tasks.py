@@ -186,6 +186,38 @@ class TaskService:
         task["reminder"] = data.get("reminders")
         return task
 
+    def update_status(
+        self,
+        task_id: int,
+        status: str | int,
+        *,
+        non_completion_reason: str | None = None,
+    ) -> dict[str, Any]:
+        if isinstance(task_id, bool) or not isinstance(task_id, int) or task_id <= 0:
+            raise RahtalValidationError("task_id must be a positive integer.")
+        if status is None:
+            raise RahtalValidationError("status is required.")
+        status_ids = self.resolve_status_ids(status)
+        if len(status_ids) != 1:
+            raise RahtalValidationError(
+                "status must name exactly one of todo, in_progress, done, or not_done."
+            )
+        status_id = status_ids[0]
+        reason = (non_completion_reason or "").strip()
+        if reason and status_id != 4:
+            raise RahtalValidationError(
+                "non_completion_reason is only valid with status not_done."
+            )
+
+        # Same body the task board sends when a card is dragged between columns.
+        payload: dict[str, Any] = {"status": status_id}
+        if reason:
+            payload["non_completion_reason"] = reason
+        self.client.patch(
+            f"leadership/order-partial-update/{task_id}/", json_body=payload
+        )
+        return self.get_task(task_id)
+
     def resolve_status_ids(self, status: str | int | None) -> list[int]:
         if status is None:
             return [1, 2]

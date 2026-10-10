@@ -210,7 +210,28 @@ and ignores any caller-supplied `time` value.
 - Soft delete: `DELETE /functionality/activities/{activity_id}/`, restricted to
   the authenticated user's record.
 
-Only creation is exposed by the initial MCP version.
+The MCP exposes create, the date-range list, partial update, and soft delete.
+
+Notes verified against the backend source and the live API:
+
+- The date-range list accepts Jalali `YYYY-MM-DD` dates, is not paginated, and
+  returns `order_code`/`order_title` but not the order ID.
+- Update runs the same serializer validation as create, including the overlap
+  check, which reads `date`, `start_time`, and `end_time` even on `PATCH`. The
+  MCP therefore always sends those three fields and sends other fields only
+  when they change. Omitting `order_id` keeps the existing task link.
+- The past-date limit is readable at
+  `GET /functionality/activity-settings/max-day` (`{"max_days_allowed": n}`).
+
+### Task status update
+
+- Endpoint: `PATCH /leadership/order-partial-update/{order_id}/`
+- Permission: `UPDATE_ORDERS`; `status` and `non_completion_reason` may only be
+  changed by the assignee.
+- Body used by the frontend board: `{"status": <1-4>}`, optionally with
+  `non_completion_reason`.
+- A status change writes `OrderStatusHistory` and publishes a notification to
+  the assignee and the commander.
 
 ## Date and duration behavior
 

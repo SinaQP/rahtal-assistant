@@ -122,6 +122,12 @@ class RahtalClient:
     def post(self, path: str, *, json_body: Mapping[str, Any]) -> Any:
         return self.request("POST", path, json_body=json_body, write_operation=True)
 
+    def patch(self, path: str, *, json_body: Mapping[str, Any]) -> Any:
+        return self.request("PATCH", path, json_body=json_body, write_operation=True)
+
+    def delete(self, path: str) -> Any:
+        return self.request("DELETE", path, write_operation=True)
+
     def request(
         self,
         method: str,

@@ -7,3 +7,6 @@ __pycache__/
 .coverage
 htmlcov/
 
+
+# Machine-specific MCP registration (absolute paths)
+.mcp.json
